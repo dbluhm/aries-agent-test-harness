@@ -12,6 +12,7 @@ from aiohttp import (
     ClientRequest,
 )
 import ptvsd
+from aries_staticagent import crypto
 
 from .utils import log_msg, read_operations
 
@@ -29,6 +30,7 @@ RUN_MODE = os.getenv("RUNMODE")
 
 GENESIS_URL = os.getenv("GENESIS_URL")
 LEDGER_URL = os.getenv("LEDGER_URL")
+SELFSERVE_URL = os.getenv("SELFSERVE_URL")
 
 if RUN_MODE == "docker":
     DEFAULT_INTERNAL_HOST = os.getenv("DOCKERHOST") or "host.docker.internal"
@@ -487,6 +489,22 @@ class AgentBackchannel:
         log_msg(*output, color=color, prefix=self.prefix_str, end=end, **kwargs)
 
     async def register_did(self, ledger_url: str = None, alias: str = None):
+        if SELFSERVE_URL:
+            verkey, _ = crypto.create_keypair(seed=self.seed)
+            did = crypto.bytes_to_b58(verkey[:16])
+            async with self.client_session.post(
+                SELFSERVE_URL + "/nym", json={
+                    "network": "testnet",
+                    "did": did,
+                    "verkey": verkey,
+                }
+            ) as resp:
+                if resp.status != 200:
+                    print(f"Failed to register DID via selfserve app located at {SELFSERVE_URL}")
+                self.did = did
+                self.log(f"Created DID: {self.did}")
+                return
+
         ledger_url = get_ledger_url(ledger_url)
         data = {"alias": alias or self.ident, "seed": self.seed, "role": "TRUST_ANCHOR"}
         async with self.client_session.post(
